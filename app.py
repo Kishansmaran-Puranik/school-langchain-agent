@@ -164,6 +164,9 @@ with closing(sqlite3.connect(DATABASE_PATH)) as connection:
     student_count = connection.execute("SELECT COUNT(*) FROM students").fetchone()[0]
     teacher_count = connection.execute("SELECT COUNT(*) FROM teachers").fetchone()[0]
     section_count = connection.execute("SELECT COUNT(*) FROM sections").fetchone()[0]
+    subject_count = connection.execute("SELECT COUNT(*) FROM subjects").fetchone()[0]
+    club_count = connection.execute("SELECT COUNT(*) FROM clubs").fetchone()[0]
+    assignment_count = connection.execute("SELECT COUNT(*) FROM assignments").fetchone()[0]
 
 suggestions = [
     "Which subjects have the highest average scores?",
@@ -235,7 +238,9 @@ with st.sidebar:
     st.markdown(
         f"<div style='font-size:.84rem;color:#c5c5c5;line-height:1.9'>"
         f"{student_count} students · {teacher_count} teachers<br>"
-        f"{section_count} sections · Fictional demo data</div>",
+        f"{section_count} sections · {subject_count} subjects<br>"
+        f"{club_count} clubs · {assignment_count:,} assignments<br>"
+        f"Fictional demo data</div>",
         unsafe_allow_html=True,
     )
     st.markdown("---")

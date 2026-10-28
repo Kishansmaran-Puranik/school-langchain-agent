@@ -12,9 +12,13 @@ the database, runs an analytical query, and explains the results.
 ## Features
 
 - **ChatGPT-inspired dark chat UI** with searchable recent conversations, example
-  questions, and a new-chat action. Chat history stays in the current Streamlit session.
+  questions, and a new-chat action. Chat history and follow-up context stay in the
+  current Streamlit session and are not saved to the database.
 - **Natural-language reporting** across students, teachers, sections, subjects, grades,
-  enrollments, and attendance.
+  enrollments, attendance, assignments, families, clubs, and school events.
+- **Context-aware follow-ups:** ask a question, then refine it with prompts such as
+  “What about grade 7?”, “Compare that with last term,” or “Show the same for Biology.”
+  The active conversation provides context for follow-up questions.
 - **Groq-hosted model:** `openai/gpt-oss-120b`, connected through LangChain's Groq integration.
 - **Schema-aware tools:** the agent receives the SQLite table definitions and can inspect
   the schema or request database queries.
@@ -26,7 +30,8 @@ the database, runs an analytical query, and explains the results.
   of 100 returned rows.
 - **SQL error recovery:** query errors are fed back to the model so it can inspect the
   schema and attempt a corrected query instead of presenting a failed query as a report.
-- **School overview:** student, teacher, and section counts appear in the sidebar.
+- **School overview:** student, teacher, section, subject, club, and assignment counts
+  appear in the sidebar.
 
 Example questions:
 
@@ -36,6 +41,15 @@ Example questions:
 - Compare average scores across subjects and grade levels.
 - Which students have attendance below 90%?
 - Rank students by average exam score within each section.
+- Which assignments have the highest missing-submission rate?
+- Which clubs have the most members?
+- When is the next school event?
+
+Follow up to narrow a result without repeating its context:
+
+1. “Compare average scores by grade.”
+2. “What about just Biology?”
+3. “Now show the top three students in grade 8.”
 
 ## Architecture
 
@@ -66,9 +80,10 @@ Example questions:
 
 ### Request flow
 
-1. `app.py` initializes the local database, displays the chat interface, and collects a
-   question. Conversations can be searched and switched during the current session.
-   The last eight messages in the active conversation are passed as context.
+1. `app.py` initializes or upgrades the local database, displays the chat interface,
+   and collects a question. Conversations can be searched and switched during the
+   current session. Up to the last eight messages in the active conversation are
+   passed as context.
 2. `sql_agent.py` loads the database schema and creates a LangChain `ChatGroq` client
    configured for `openai/gpt-oss-120b` with tool calling enabled.
 3. The model decides whether to inspect the schema, request a SQL query, or answer
@@ -78,6 +93,9 @@ Example questions:
    serialized as JSON and capped at 100 rows. SQL errors are returned to the model so
    it can make a limited correction attempt within the agent's six-turn budget.
 5. The model uses the query result to write a response, which is shown in the chat.
+   When a follow-up changes the grade, subject, comparison, or time scope, the agent is
+   instructed to carry over the prior metric and filters and query the database again.
+   If context is still ambiguous, it should ask a brief clarifying question.
 
 The agent can write complex **read queries**, including joins across related tables,
 aggregations, subqueries, CTEs, `CASE` expressions, and window functions supported by
@@ -93,7 +111,8 @@ authentication, authorization, auditing, rate limiting, or privacy controls.
 
 ## Database
 
-`school_db.py` creates the schema and seeds fictional records in `school.db`:
+`school_db.py` creates or upgrades the schema and seeds fictional records in `school.db`.
+It contains these 15 related tables:
 
 | Table | Contents |
 |---|---|
@@ -104,15 +123,31 @@ authentication, authorization, auditing, rate limiting, or privacy controls.
 | `enrollments` | Student, subject, teacher, and school-year assignments |
 | `grades` | Quiz, project, and exam scores by term |
 | `attendance` | Daily present, absent, late, and excused records |
+| `guardians` | Fictional parent/guardian names and demo-only contact details |
+| `student_guardians` | Student-to-guardian relationships and primary contact flag |
+| `school_terms` | School years and Fall, Spring, and Summer term date ranges |
+| `assignments` | Course assignments, term, due date, and maximum score |
+| `assignment_submissions` | Submission status, submitted date, and score |
+| `clubs` | Extracurricular clubs, faculty advisors, meeting days, and rooms |
+| `club_memberships` | Student club participation and roles |
+| `school_events` | School calendar events with dates and categories |
 
-The demo seeds 30 students, 8 teachers, 6 sections, 6 subjects, 180 student-subject
-enrollments, and 1,080 assessment grades. Attendance spans recent weekdays. Names and
-scores are generated from fixed demo data; the school year and attendance dates depend
-on the date the database is first created.
+The demo contains 120 students across grades 6–12, 16 teachers, 14 sections, 10 subjects,
+1,200 student-subject enrollments, 7,200 assessment grades, 2,400 assignments and
+submissions, 120 fictional guardians, 6 clubs, 240 club memberships, and 10 school
+events. Attendance covers recent weekdays and typically contains more than 10,000
+records. The seeded records and scores are deterministic; school-year dates and
+attendance dates are based on the date the database is initialized.
 
-`school.db` is generated locally and excluded from Git. If you want a fresh demo
-database, stop the app and remove the generated `school.db`; the next app launch will
-create and seed it again. The database is not required in the repository.
+Initialization is idempotent: running the app again does not duplicate seeded
+enrollments, grades, assignments, submissions, attendance, or memberships. If an older
+demo `school.db` already exists, startup creates the new tables and adds the additional
+records while preserving existing rows. `school.db` is generated locally and excluded
+from Git. To start over, stop the app and remove the generated database; the next launch
+will create and seed a fresh copy.
+
+All people and contact details are fake sample data. The agent is instructed not to
+return email addresses, phone numbers, or dates of birth.
 
 ## Requirements
 
@@ -207,8 +242,9 @@ The unit tests do not need a Groq key:
 python -m unittest discover -s tests -v
 ```
 
-They verify database initialization and seeded data, result truncation, query rejection,
-database integrity, and support for an analytical query combining joins, aggregation,
+They verify the expanded schema and record counts, idempotent seeding and table
+recreation, result truncation, query rejection, recoverable SQL errors, follow-up
+context, database integrity, and an analytical query combining joins, aggregation,
 a CTE, and a window function.
 
 ## Deploy (optional)
@@ -266,8 +302,8 @@ not staged. The project `.gitignore` excludes them by default.
 ```text
 .
 ├── app.py                  # Streamlit dark chat UI and app flow
-├── school_db.py            # SQLite schema and fictional seed data
-├── sql_agent.py            # Groq / LangChain agent and read-only SQL tools
+├── school_db.py            # SQLite schema, upgrade path, and fictional seed data
+├── sql_agent.py            # Groq / LangChain agent, follow-up context, safe SQL tools
 ├── requirements.txt        # Python dependencies
 ├── .env.example            # Safe template for the Groq API key
 ├── .gitignore              # Excludes secrets, generated database, and Python artifacts

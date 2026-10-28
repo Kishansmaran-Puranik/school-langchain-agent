@@ -26,9 +26,15 @@ aggregations, CASE expressions, and window functions when useful. SQL access is
 read-only. Query results are capped at 100 rows; aggregate in SQL for totals and
 comparisons. Explain the measure and time period used, and clearly say when the
 database does not contain enough information.
-Do not expose student email addresses or dates of birth. Use aggregate results
-whenever possible and identify students only when the question calls for it.
-Do not invent personal data.
+Do not expose student or guardian email addresses, phone numbers, or dates of birth.
+Use aggregate results whenever possible and identify students only when the question
+calls for it. Do not invent personal data.
+
+Treat follow-up questions as part of the active conversation. Resolve phrases like
+"what about grade 7?", "compare that with last term", or "show the same for teachers"
+using the most recent relevant metric, filters, and time period in the chat. Re-query
+the database for a changed scope; do not make up missing results. If the context leaves
+multiple plausible interpretations, ask one short clarifying question.
 
 If a SQL tool returns a query error, use the schema and error details to correct
 the query and try again. Never present an unsuccessful query as a successful report.
@@ -105,6 +111,27 @@ def run_query_tool(database_path: str | Path, query: str) -> str:
         )
 
 
+def build_conversation_messages(
+    question: str,
+    history: list[dict[str, str]] | None,
+    schema: str,
+) -> list[SystemMessage | HumanMessage | AIMessage]:
+    """Build a bounded model context that preserves the active chat's follow-ups."""
+    messages: list[SystemMessage | HumanMessage | AIMessage] = [
+        SystemMessage(content=SYSTEM_PROMPT.format(schema=schema))
+    ]
+    for item in (history or [])[-8:]:
+        content = item.get("content")
+        if not isinstance(content, str) or not content.strip():
+            continue
+        if item.get("role") == "user":
+            messages.append(HumanMessage(content=content))
+        elif item.get("role") == "assistant":
+            messages.append(AIMessage(content=content))
+    messages.append(HumanMessage(content=question))
+    return messages
+
+
 def create_school_agent(database_path: str | Path, api_key: str | None = None):
     """Create the Groq tool-calling agent for one database."""
     schema = get_schema(database_path)
@@ -126,13 +153,7 @@ def create_school_agent(database_path: str | Path, api_key: str | None = None):
     ).bind_tools([inspect_school_schema, query_school_database])
 
     def ask(question: str, history: list[dict[str, str]] | None = None) -> dict[str, Any]:
-        messages = [SystemMessage(content=SYSTEM_PROMPT.format(schema=schema))]
-        for item in history or []:
-            if item.get("role") == "user":
-                messages.append(HumanMessage(content=item["content"]))
-            elif item.get("role") == "assistant":
-                messages.append(AIMessage(content=item["content"]))
-        messages.append(HumanMessage(content=question))
+        messages = build_conversation_messages(question, history, schema)
         tool_calls_used = 0
 
         for _ in range(MAX_AGENT_STEPS):
