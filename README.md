@@ -276,3 +276,7 @@ not staged. The project `.gitignore` excludes them by default.
 └── tests/
     └── test_sql_agent.py   # Database, SQL boundary, and analytical query tests
 ```
+## Screenshots
+
+<img width="1917" height="866" alt="image" src="https://github.com/user-attachments/assets/57a75451-1a95-41ff-a673-c834962a04f9" />
+<img width="1917" height="865" alt="image" src="https://github.com/user-attachments/assets/3e95e1a5-7780-44f2-be7e-8bd0e47e08c6" />
